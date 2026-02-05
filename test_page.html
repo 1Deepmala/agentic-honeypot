@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test GUVI API</title>
+    <script>
+        async function testAPI() {
+            const url = document.getElementById('url').value;
+            const apiKey = document.getElementById('apiKey').value;
+            
+            const responseDiv = document.getElementById('response');
+            responseDiv.innerHTML = "Testing...";
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'x-api-key': apiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({test: "data"})
+                });
+                
+                const data = await response.json();
+                responseDiv.innerHTML = `
+                    <h3>✅ Success!</h3>
+                    <p>Status: ${response.status}</p>
+                    <p>Response: ${JSON.stringify(data, null, 2)}</p>
+                `;
+            } catch (error) {
+                responseDiv.innerHTML = `
+                    <h3>❌ Error</h3>
+                    <p>${error}</p>
+                `;
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>GUVI API Tester</h1>
+    <div>
+        <label>URL:</label><br>
+        <input type="text" id="url" value="https://possessory-amberly-falconine.ngrok-free.dev/api/v1/process" style="width: 400px"><br><br>
+        
+        <label>API Key:</label><br>
+        <input type="text" id="apiKey" value="test-api-key-123456" style="width: 400px"><br><br>
+        
+        <button onclick="testAPI()">Test API</button>
+    </div>
+    
+    <div id="response" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; min-height: 100px;"></div>
+</body>
+</html>
