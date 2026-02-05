@@ -1,7 +1,11 @@
 services:
   - type: web
-    name: agentic-honeypot-simple
+    name: guvi-honeypot
     env: python
     plan: free
-    buildCommand: pip install fastapi uvicorn
-    startCommand: uvicorn simple_api:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.guvi_api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+    healthCheckPath: /health
