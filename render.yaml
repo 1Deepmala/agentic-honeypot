@@ -1,12 +1,7 @@
 services:
   - type: web
-    name: agentic-honeypot
+    name: agentic-honeypot-simple
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.11.0"
-    autoDeploy: true
-    healthCheckPath: /health
+    buildCommand: pip install fastapi uvicorn
+    startCommand: uvicorn simple_api:app --host 0.0.0.0 --port $PORT
