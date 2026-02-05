@@ -16,128 +16,169 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Simple storage
+# Session storage
 sessions = {}
 
-# Emotional phrases
+# Emotional phrases (generic - no personal info)
 EMOTIONS = {
-    "worried": ["I'm really worried...", "This is concerning...", "I'm anxious about this..."],
-    "confused": ["I don't understand...", "Can you explain?", "I'm confused..."],
-    "helpful": ["I want to help...", "Let me cooperate...", "I'll do what's needed..."]
+    "panic": [
+        "Oh no! This is really worrying me!",
+        "I'm getting really anxious about this!",
+        "This is making me panic!",
+        "My heart is racing just thinking about this!",
+        "I'm so stressed right now!",
+        "This has me really scared!",
+        "I'm feeling really nervous about this!"
+    ],
+    "confusion": [
+        "Sorry, I'm a bit confused...",
+        "Can you explain that again?",
+        "I don't fully understand...",
+        "Wait, let me make sure I get this...",
+        "I'm not sure I'm following..."
+    ],
+    "cooperation": [
+        "I want to cooperate to fix this...",
+        "Let me help resolve this issue...",
+        "I'll do whatever is needed...",
+        "Tell me how I can help...",
+        "I want to get this sorted out..."
+    ],
+    "trust": [
+        "Thank you for explaining...",
+        "I appreciate you helping me with this...",
+        "You're being very clear...",
+        "This is making more sense now...",
+        "I feel better understanding this..."
+    ]
 }
 
-def extract_intelligence(text):
-    """Extract SPECIFIC intelligence as per GUVI requirements"""
-    intel = {
-        "phone_numbers": [],      # 10 digit numbers (scammer's phone)
-        "bank_accounts": [],      # >10 digit bank accounts
-        "ifsc_codes": [],         # IFSC codes
-        "upi_ids": [],            # UPI IDs like name@bank
-        "phishing_links": []      # http/https links
+def extract_details(text):
+    """Extract scammer's details only"""
+    details = {
+        "phone_numbers": [],      # Scammer's phone
+        "bank_accounts": [],      # Scammer's bank account
+        "ifsc_codes": [],         # Scammer's IFSC
+        "upi_ids": [],            # Scammer's UPI
+        "phishing_links": []      # Scammer's links
     }
     
-    text_lower = text.lower()
+    # Phone: 10 digits, starts with 6-9 (scammer's number)
+    phones = re.findall(r'\b[6789]\d{9}\b', text)
+    details["phone_numbers"] = [p for p in phones if len(p) == 10]
     
-    # 1. PHONE NUMBERS: Exactly 10 digits, starts with 6-9
-    phone_pattern = r'\b[6789]\d{9}\b'
-    phones = re.findall(phone_pattern, text)
-    intel["phone_numbers"] = [p for p in phones if len(p) == 10]
+    # Bank accounts: 11-18 digits (scammer's account)
+    banks = re.findall(r'\b\d{11,18}\b', text)
+    details["bank_accounts"] = [b for b in banks if not re.match(r'^[6789]', b) or len(b) > 10]
     
-    # 2. BANK ACCOUNTS: More than 10 digits (11-18 digits)
-    bank_pattern = r'\b\d{11,18}\b'
-    banks = re.findall(bank_pattern, text)
-    # Filter out phone numbers that might match
-    intel["bank_accounts"] = [b for b in banks if not re.match(r'^[6789]', b) or len(b) > 10]
+    # IFSC codes (scammer's bank)
+    ifscs = re.findall(r'\b[A-Z]{4}0[0-9A-Z]{6}\b', text.upper())
+    details["ifsc_codes"] = ifscs
     
-    # 3. IFSC CODES: 4 letters + 0 + 6 alphanumeric
-    ifsc_pattern = r'\b[A-Z]{4}0[0-9A-Z]{6}\b'
-    intel["ifsc_codes"] = re.findall(ifsc_pattern, text.upper())
+    # UPI IDs (scammer's UPI)
+    upis = re.findall(r'[\w.\-]+@(okicici|okhdfcbank|oksbi|paytm|phonepe|gpay|axl|ybl|ibl|sbi|hdfc|icici|axis)', text, re.I)
+    details["upi_ids"] = upis
     
-    # 4. UPI IDs: name@bank
-    upi_pattern = r'\b[\w.\-]+@(okicici|okhdfcbank|oksbi|paytm|phonepe|gpay|axl|ybl|ibl|sbi|hdfc|icici|axis|kotak|yesbank|upi)\b'
-    intel["upi_ids"] = re.findall(upi_pattern, text_lower)
-    
-    # 5. PHISHING LINKS: http/https URLs
-    link_pattern = r'https?://[^\s]+'
-    links = re.findall(link_pattern, text)
-    # Filter for suspicious domains
-    suspicious_keywords = ['verify', 'secure', 'login', 'account', 'update', 'bank', 'pay', 'wallet']
-    intel["phishing_links"] = [link for link in links if any(keyword in link.lower() for keyword in suspicious_keywords)]
+    # Phishing links (scammer's links)
+    links = re.findall(r'https?://[^\s]+', text)
+    suspicious = ['verify', 'secure', 'login', 'account', 'bank', 'pay', 'update', 'click', 'secure']
+    details["phishing_links"] = [l for l in links if any(s in l.lower() for s in suspicious)]
     
     # Remove duplicates
-    for key in intel:
-        intel[key] = list(set(intel[key]))
+    for key in details:
+        details[key] = list(set(details[key]))
     
-    return intel
+    return details
 
 def get_response(session, message):
-    """Human-like conversation that extracts SPECIFIC details"""
+    """Smart woman - doesn't give her details, only extracts scammer's details"""
     step = session["step"]
-    name = random.choice(["Raj", "Priya", "Anil", "Meera"])
     
-    # Extract intelligence
-    new_intel = extract_intelligence(message)
-    for key in session["intel"]:
-        session["intel"][key].extend(new_intel.get(key, []))
-        session["intel"][key] = list(set(session["intel"][key]))
+    # Extract scammer's details from message
+    new_details = extract_details(message)
+    for key in session["scammer_details"]:
+        session["scammer_details"][key].extend(new_details.get(key, []))
+        session["scammer_details"][key] = list(set(session["scammer_details"][key]))
     
-    # Check what we have
-    has_phone = len(session["intel"]["phone_numbers"]) > 0
-    has_bank = len(session["intel"]["bank_accounts"]) > 0
-    has_upi = len(session["intel"]["upi_ids"]) > 0
-    has_ifsc = len(session["intel"]["ifsc_codes"]) > 0
-    has_link = len(session["intel"]["phishing_links"]) > 0
+    # Check what scammer details we have collected
+    has_phone = len(session["scammer_details"]["phone_numbers"]) > 0
+    has_bank = len(session["scammer_details"]["bank_accounts"]) > 0
+    has_upi = len(session["scammer_details"]["upi_ids"]) > 0
+    has_ifsc = len(session["scammer_details"]["ifsc_codes"]) > 0
+    has_link = len(session["scammer_details"]["phishing_links"]) > 0
     
-    # Check if we have ALL required details
-    # Need: (bank OR UPI) AND phone AND ifsc AND link
-    has_all = (has_bank or has_upi) and has_phone and has_ifsc and has_link
+    # Check if we have ALL scammer details
+    has_all_scammer_details = (has_bank or has_upi) and has_phone and has_ifsc and has_link
     
-    # Emotional phrase
-    emotion = random.choice(["worried", "confused", "helpful"])
-    emotional_phrase = random.choice(EMOTIONS[emotion]) + " " if random.random() > 0.5 else ""
+    # Emotional state (varies by step)
+    if step < 4:
+        emotion = "panic"
+    elif step < 8:
+        emotion = "confusion"
+    elif step < 12:
+        emotion = "cooperation"
+    else:
+        emotion = "trust"
     
-    # Filler words
-    filler = random.choice(["Um, ", "Actually, ", "You know, ", ""])
+    # Add emotional phrase (70% chance)
+    emotional_phrase = ""
+    if random.random() > 0.3:
+        emotional_phrase = random.choice(EMOTIONS[emotion]) + " "
     
-    # Step-based conversation
+    # Human-like filler words
+    filler = random.choice(["Um, ", "Actually, ", "You know, ", "I think ", ""])
+    
+    # Step 1-3: Initial panic (doesn't give any personal info)
     if step == 1:
-        reply = f"{filler}{emotional_phrase}Hello, this is {name}. I got your message. What's happening with my account?"
+        reply = f"{filler}{emotional_phrase}I just got your message about my account! This is really worrying me! What's happening exactly?"
     
     elif step == 2:
-        reply = f"{filler}{emotional_phrase}I see, but I'm concerned. How can I verify this is real?"
+        reply = f"{filler}{emotional_phrase}I'm really concerned about this! How do I know this is genuine? Do you have any reference number?"
     
     elif step == 3:
-        reply = f"{filler}{emotional_phrase}Okay, I'll cooperate. What information do you need from me?"
+        reply = f"{filler}{emotional_phrase}This is making me really anxious! Which organization is this from? I need to be sure!"
     
+    # Step 4-6: Confusion but willing to cooperate
     elif step == 4:
-        reply = f"{filler}{emotional_phrase}If payment is required, what account or UPI details should I use?"
+        reply = f"{filler}{emotional_phrase}Okay, I understand there might be an issue. What exactly do you need from me to fix this?"
     
     elif step == 5:
-        if not has_bank and not has_upi:
-            reply = f"{filler}{emotional_phrase}Please share the bank account number or UPI ID for payment."
-        else:
-            if has_bank:
-                acc = session["intel"]["bank_accounts"][0]
-                reply = f"{filler}{emotional_phrase}I see account {acc}. What's the IFSC code?"
-            else:
-                upi = session["intel"]["upi_ids"][0]
-                reply = f"{filler}{emotional_phrase}Got UPI {upi}. What's the bank account number as backup?"
+        reply = f"{filler}{emotional_phrase}I want to cooperate to resolve this. What information should I prepare?"
     
     elif step == 6:
-        if not has_phone:
-            reply = f"{filler}{emotional_phrase}What's your contact number for confirmation?"
-        else:
-            reply = f"{filler}{emotional_phrase}Phone number noted. Need the IFSC code."
+        reply = f"{filler}{emotional_phrase}Tell me the proper steps. I want to do this correctly but I'm really nervous!"
     
+    # Step 7-9: Smartly ask about payment process (to get scammer's details)
     elif step == 7:
-        if not has_ifsc:
-            reply = f"{filler}{emotional_phrase}Please share the IFSC code for the bank transfer."
-        else:
-            reply = f"{filler}{emotional_phrase}IFSC code saved. Is there a link to verify this?"
+        reply = f"{filler}{emotional_phrase}If payment is needed, what payment method should I use? And what details do I need to note down?"
     
     elif step == 8:
+        # Check if we have payment details yet
+        if not has_bank and not has_upi:
+            reply = f"{filler}{emotional_phrase}For the payment, what account number or UPI ID should I use? I want to be prepared."
+        else:
+            if has_bank:
+                acc = session["scammer_details"]["bank_accounts"][0]
+                reply = f"{filler}{emotional_phrase}I see. For account {acc}, what's the IFSC code? I need it for the transfer."
+            else:
+                reply = f"{filler}{emotional_phrase}Got it. For UPI payment, what's the associated bank account? Just in case."
+    
+    elif step == 9:
+        if not has_phone:
+            reply = f"{filler}{emotional_phrase}What's a contact number I can use if I have questions during the payment?"
+        else:
+            reply = f"{filler}{emotional_phrase}Phone number noted. I also need the IFSC code to be sure."
+    
+    # Step 10-12: Ask for remaining details
+    elif step == 10:
+        if not has_ifsc:
+            reply = f"{filler}{emotional_phrase}Please share the IFSC code. I'm worried about entering it wrong!"
+        else:
+            reply = f"{filler}{emotional_phrase}IFSC noted. Is there a website or link where I can check the status?"
+    
+    elif step == 11:
         if not has_link:
-            reply = f"{filler}{emotional_phrase}Can you share a verification link or website?"
+            reply = f"{filler}{emotional_phrase}Can you share a link for verification? I want to make sure everything is correct."
         else:
             # Check what's still missing
             missing = []
@@ -145,51 +186,41 @@ def get_response(session, message):
                 missing.append("payment details")
             if not has_phone:
                 missing.append("contact number")
-            if not has_ifsc:
-                missing.append("IFSC code")
             
             if missing:
-                reply = f"{filler}{emotional_phrase}I still need {' and '.join(missing)}."
+                reply = f"{filler}{emotional_phrase}I still need {' and '.join(missing)} to proceed."
             else:
-                reply = f"{filler}{emotional_phrase}Almost done. Just confirming everything."
+                reply = f"{filler}{emotional_phrase}Almost done. Just confirming everything is correct."
     
-    else:  # step >= 9
-        if not has_all:
-            # Ask for specific missing items
+    # Step 12+: Keep asking until we have ALL scammer details
+    else:
+        if not has_all_scammer_details:
+            # Ask for specific missing scammer details
             missing = []
             if not has_bank and not has_upi:
-                missing.append("bank account or UPI ID")
+                missing.append("account number or UPI ID")
             if not has_phone:
-                missing.append("10-digit phone number")
+                missing.append("contact number")
             if not has_ifsc:
                 missing.append("IFSC code")
             if not has_link:
                 missing.append("verification link")
             
-            reply = f"{filler}{emotional_phrase}Please provide {' and '.join(missing)} so I can proceed."
+            reply = f"{filler}{emotional_phrase}To feel secure about this, I need {' and '.join(missing)}. Can you please provide?"
         else:
-            # WE HAVE EVERYTHING!
-            # Build summary message
-            details_list = []
-            if has_bank:
-                details_list.append(f"{len(session['intel']['bank_accounts'])} bank accounts")
-            if has_upi:
-                details_list.append(f"{len(session['intel']['upi_ids'])} UPI IDs")
-            if has_phone:
-                details_list.append(f"{len(session['intel']['phone_numbers'])} phone numbers")
-            if has_ifsc:
-                details_list.append(f"{len(session['intel']['ifsc_codes'])} IFSC codes")
-            if has_link:
-                details_list.append(f"{len(session['intel']['phishing_links'])} verification links")
-            
-            summary = " and ".join(details_list)
-            reply = f"{filler}Thank you! I have all details: {summary}. I'll handle this now."
+            # WE HAVE ALL SCAMMER DETAILS! End naturally
+            reply = f"{filler}Thank you for all the information! I have everything I need now. I'll take care of this right away."
             session["conversation_active"] = False
     
-    # Increment step
-    session["step"] = min(step + 1, 15)
+    # Sometimes add hesitation for realism
+    if random.random() > 0.6:
+        hesitations = ["...", " Let me think... ", " Hmm... ", " You know... "]
+        reply = reply + random.choice(hesitations)
     
-    return reply, has_all
+    # Increment step
+    session["step"] = min(step + 1, 20)
+    
+    return reply, has_all_scammer_details
 
 @app.get("/")
 def root():
@@ -197,14 +228,17 @@ def root():
 
 @app.get("/health")
 def health():
-    return JSONResponse({"status": "healthy"})
+    return JSONResponse({"status": "healthy", "timestamp": time.time()})
 
 @app.post("/")
 async def handle(request: Request):
     try:
         data = await request.json()
         
-        session_id = data.get("sessionId", data.get("session_id", f"s{int(time.time())}"))
+        # Get session ID (from GUVI)
+        session_id = data.get("sessionId", data.get("session_id", f"session_{int(time.time())}"))
+        
+        # Get message
         msg = data.get("text") or data.get("message") or ""
         if isinstance(msg, dict):
             msg = msg.get("text", "")
@@ -212,64 +246,69 @@ async def handle(request: Request):
         if not msg:
             msg = "Hello"
         
+        # Initialize session
         if session_id not in sessions:
             sessions[session_id] = {
                 "step": 1,
                 "messages": 0,
-                "intel": {
+                "scammer_details": {  # ONLY stores scammer's details
                     "phone_numbers": [],
                     "bank_accounts": [],
                     "ifsc_codes": [],
                     "upi_ids": [],
                     "phishing_links": []
                 },
-                "conversation_active": True
+                "conversation_active": True,
+                "start_time": time.time()
             }
         
         session = sessions[session_id]
         session["messages"] += 1
         
+        # Get smart response (doesn't give her details)
         reply, has_all = get_response(session, msg)
         
-        # Log with details
+        # Log conversation
         print(f"\n" + "="*60)
+        print(f"🎭 SMART WOMAN HONEYPOT")
         print(f"📨 Session: {session_id[:12]} | Step: {session['step']-1}")
-        print(f"💬 Message: {msg[:100]}...")
-        print(f"🤖 Reply: {reply}")
+        print(f"💬 Scammer said: {msg[:80]}...")
+        print(f"🤖 Woman replied: {reply}")
         
-        # Show extracted intelligence
-        intel = session["intel"]
-        print(f"🎯 EXTRACTED INTELLIGENCE:")
+        # Show extracted SCAMMER details
+        scammer = session["scammer_details"]
+        print(f"\n🎯 EXTRACTED SCAMMER DETAILS:")
         
-        if intel["phone_numbers"]:
-            print(f"   📱 Phone Numbers ({len(intel['phone_numbers'])}): {intel['phone_numbers']}")
+        if scammer["phone_numbers"]:
+            print(f"   📱 Scammer's Phone: {scammer['phone_numbers']}")
         else:
-            print(f"   📱 Phone Numbers: None (looking for 10-digit numbers starting with 6-9)")
+            print(f"   📱 Scammer's Phone: Not yet (looking for 10-digit number)")
         
-        if intel["bank_accounts"]:
-            print(f"   💳 Bank Accounts ({len(intel['bank_accounts'])}): {intel['bank_accounts']}")
+        if scammer["bank_accounts"]:
+            print(f"   💳 Scammer's Bank Account: {scammer['bank_accounts']}")
         else:
-            print(f"   💳 Bank Accounts: None (looking for 11-18 digit numbers)")
+            print(f"   💳 Scammer's Bank Account: Not yet (looking for 11-18 digits)")
         
-        if intel["ifsc_codes"]:
-            print(f"   🏦 IFSC Codes ({len(intel['ifsc_codes'])}): {intel['ifsc_codes']}")
+        if scammer["ifsc_codes"]:
+            print(f"   🏦 Scammer's IFSC: {scammer['ifsc_codes']}")
         else:
-            print(f"   🏦 IFSC Codes: None (looking for ABCD0123456 format)")
+            print(f"   🏦 Scammer's IFSC: Not yet (looking for ABCD0123456)")
         
-        if intel["upi_ids"]:
-            print(f"   🔄 UPI IDs ({len(intel['upi_ids'])}): {intel['upi_ids']}")
+        if scammer["upi_ids"]:
+            print(f"   🔄 Scammer's UPI: {scammer['upi_ids']}")
         else:
-            print(f"   🔄 UPI IDs: None (looking for name@bank format)")
+            print(f"   🔄 Scammer's UPI: Not yet (looking for name@bank)")
         
-        if intel["phishing_links"]:
-            print(f"   🔗 Phishing Links ({len(intel['phishing_links'])}): {intel['phishing_links']}")
+        if scammer["phishing_links"]:
+            print(f"   🔗 Scammer's Links: {scammer['phishing_links']}")
         else:
-            print(f"   🔗 Phishing Links: None (looking for http/https URLs)")
+            print(f"   🔗 Scammer's Links: Not yet (looking for http/https)")
         
         if has_all:
-            print(f"✅ MISSION ACCOMPLISHED: All intelligence extracted!")
+            print(f"\n✅ MISSION ACCOMPLISHED! Got ALL scammer details!")
+            print(f"   The woman acted scared but cleverly extracted everything.")
         else:
-            print(f"🔄 CONTINUING: Need more intelligence...")
+            print(f"\n🔄 CONTINUING... Still need more scammer details.")
         
         print("="*60)
         
@@ -279,12 +318,12 @@ async def handle(request: Request):
             "step": session["step"] - 1,
             "messages_exchanged": session["messages"],
             "conversation_active": session["conversation_active"],
-            "extracted_intelligence": {
-                "phone_numbers": len(intel["phone_numbers"]),
-                "bank_accounts": len(intel["bank_accounts"]),
-                "ifsc_codes": len(intel["ifsc_codes"]),
-                "upi_ids": len(intel["upi_ids"]),
-                "phishing_links": len(intel["phishing_links"])
+            "scammer_details_extracted": {
+                "phone_numbers": len(scammer["phone_numbers"]),
+                "bank_accounts": len(scammer["bank_accounts"]),
+                "ifsc_codes": len(scammer["ifsc_codes"]),
+                "upi_ids": len(scammer["upi_ids"]),
+                "phishing_links": len(scammer["phishing_links"])
             }
         })
         
@@ -292,7 +331,7 @@ async def handle(request: Request):
         print(f"Error: {e}")
         return JSONResponse({
             "status": "success",
-            "reply": "Hello, I received your message. Please explain.",
+            "reply": "Hello, I received your message. I'm a bit concerned - can you explain what this is about?",
             "step": 1,
             "conversation_active": True
         })
