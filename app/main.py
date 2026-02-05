@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 import random
 from datetime import datetime, timedelta
 
-app = FastAPI(title="Agentic Honey-Pot", version="10.0")
+app = FastAPI(title="Agentic Honey-Pot", version="11.0")
 
 # CORS
 app.add_middleware(
@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ========== SIMPLE SESSION STORAGE ==========
+# ========== SESSION STORAGE ==========
 class SessionManager:
     def __init__(self):
         self.sessions: Dict[str, Dict] = {}
@@ -30,7 +30,16 @@ class SessionManager:
             self.sessions[session_id] = {
                 "created": time.time(),
                 "step": 1,
-                "extracted": {},
+                "extracted": {
+                    "bank_accounts": [],
+                    "upi_ids": [],
+                    "phone_numbers": [],
+                    "ifsc_codes": []
+                },
+                "asked_for_bank": 0,
+                "asked_for_upi": 0,
+                "conversation_count": 0,
+                "got_details": False,
                 "last_active": time.time()
             }
         else:
@@ -45,118 +54,177 @@ class SessionManager:
 
 session_manager = SessionManager()
 
-# ========== FAST CONVERSATION RESPONSES ==========
+# ========== DETAILS EXTRACTOR ==========
+def extract_details(text: str) -> Dict:
+    """Extract bank/UPI details from text"""
+    details = {
+        "bank_accounts": [],
+        "upi_ids": [],
+        "phone_numbers": [],
+        "ifsc_codes": []
+    }
+    
+    # Bank accounts (9-18 digits)
+    bank_matches = re.findall(r'\b\d{9,18}\b', text)
+    details["bank_accounts"] = [acc for acc in bank_matches if 9 <= len(acc) <= 18]
+    
+    # UPI IDs
+    upi_pattern = r'[\w.\-]+@(okicici|okhdfcbank|oksbi|paytm|phonepe|gpay|axl|ybl|ibl)'
+    details["upi_ids"] = re.findall(upi_pattern, text, re.IGNORECASE)
+    
+    # Phone numbers
+    phone_pattern = r'[6789]\d{9}'
+    details["phone_numbers"] = re.findall(phone_pattern, text)
+    
+    # IFSC codes
+    ifsc_pattern = r'[A-Z]{4}0[A-Z0-9]{6}'
+    details["ifsc_codes"] = re.findall(ifsc_pattern, text)
+    
+    # Clean duplicates
+    for key in details:
+        details[key] = list(set(details[key]))
+    
+    return details
+
+# ========== SMART CONVERSATION ==========
 def get_conversation_response(session: Dict, message: str) -> str:
-    """Fast human-like responses"""
+    """Continue conversation until getting scammer's details"""
+    
+    # Extract any details from message
+    new_details = extract_details(message)
+    for key in session["extracted"]:
+        session["extracted"][key].extend(new_details.get(key, []))
+        session["extracted"][key] = list(set(session["extracted"][key]))
+    
+    # Check if we have details now
+    has_bank = len(session["extracted"]["bank_accounts"]) > 0
+    has_upi = len(session["extracted"]["upi_ids"]) > 0
+    has_phone = len(session["extracted"]["phone_numbers"]) > 0
+    
+    if has_bank or has_upi:
+        session["got_details"] = True
+    
+    # Conversation step
     step = session["step"]
+    session["conversation_count"] += 1
     
-    # Names for variation
-    names = ["Raj", "Priya", "Anil", "Meera"]
-    name = names[hash(session.get("created", 0)) % 4]
+    # Names for realism
+    names = ["Raj", "Priya", "Anil", "Meera", "Rohan", "Sneha"]
+    name = random.choice(names)
     
-    # Extract basic info (fast)
-    if "bankAccounts" not in session["extracted"]:
-        session["extracted"]["bankAccounts"] = []
-    
-    # Find bank accounts
-    bank_match = re.search(r'\b\d{9,18}\b', message)
-    if bank_match:
-        acc = bank_match.group()
-        if 9 <= len(acc) <= 18:
-            session["extracted"]["bankAccounts"].append(acc)
-            session["extracted"]["bankAccounts"] = list(set(session["extracted"]["bankAccounts"]))
-    
-    # Find UPI
-    upi_match = re.search(r'[\w.\-]+@(okicici|okhdfcbank|oksbi|paytm|phonepe|gpay)', message, re.I)
-    if upi_match and "upiIds" not in session["extracted"]:
-        session["extracted"]["upiIds"] = [upi_match.group()]
-    
-    # Simple step logic
-    if step == 1:
+    # PHASE 1: Initial confusion (steps 1-3)
+    if step <= 3:
         responses = [
-            f"Hello, this is {name}. Got your message about my account. What's happening?",
-            f"I'm {name}. Received your message. Can you explain more?",
-            f"This is {name}. Which organization is this from? Need to verify.",
-            f"Hi, {name} here. What's the issue with my account?"
+            f"Hello, this is {name}. I got your message about my account. What's happening exactly?",
+            f"I'm {name}. Received your message but I'm not sure I understand. Can you explain more?",
+            f"This is {name}. Which organization is this from? I need to verify first.",
+            f"Hi, {name} here. I'm concerned about this message. What's the issue exactly?"
         ]
     
-    elif step == 2:
+    # PHASE 2: Verification (steps 4-6)
+    elif step <= 6:
         responses = [
-            f"I see. But how do I know this is real? Got a reference number?",
-            f"Okay, but need to confirm. Which department handles this?",
-            f"Understand there's an issue. What's the process to fix it?",
-            f"Want to help, but need verification first."
+            f"I see. But how do I know this is legitimate? Do you have a reference or ID number?",
+            f"Okay, I understand there might be an issue. Which department should I contact to confirm?",
+            f"I want to cooperate, but I need proper verification. How can I confirm this is official?",
+            f"My friend said to always verify such messages. Can you provide official details?"
         ]
     
-    elif step == 3:
+    # PHASE 3: Willingness to help (steps 7-9)
+    elif step <= 9:
         responses = [
-            f"Alright, I'll cooperate. What info do you need from me?",
-            f"Can provide what's needed. What should I prepare?",
-            f"Tell me the steps. Want to do this right.",
-            f"Ready to help. What's needed from my side?"
+            f"Alright, I'll help resolve this. What exactly do you need from me?",
+            f"I can provide whatever is needed. What information should I prepare?",
+            f"Tell me the proper steps. I want to do this correctly.",
+            f"I'm ready to help. Guide me through the process."
         ]
     
-    elif step == 4:
+    # PHASE 4: Ask about payment process (steps 10-12)
+    elif step <= 12:
+        session["asked_for_bank"] += 1
         responses = [
-            f"How do people usually handle this? What options are there?",
-            f"If payment is needed, what methods work best?",
-            f"My friend had similar. He paid some amount. Is that needed?",
-            f"What's the standard process? Want to follow properly."
+            f"How do people usually handle such payments? What details are needed?",
+            f"If payment is required, what account information should I have ready?",
+            f"My cousin had a similar issue. He needed bank details. Is that the case here?",
+            f"What's the standard payment process? Which bank/UPI details work best?"
         ]
     
-    elif step == 5:
-        has_bank = session["extracted"].get("bankAccounts")
-        if has_bank:
-            acc = has_bank[0]
-            responses = [
-                f"I see account {acc}. Need the IFSC code for verification.",
-                f"Got account {acc}. Which bank is this with?",
-                f"For account {acc}, what's the IFSC and bank name?"
-            ]
+    # PHASE 5: Direct ask for details (steps 13+)
+    else:
+        # Alternate between asking for bank and UPI
+        if session["asked_for_bank"] <= session["asked_for_upi"]:
+            session["asked_for_bank"] += 1
+            if not has_bank:
+                responses = [
+                    f"To make payment, I need the correct bank details. Can you share account number and IFSC?",
+                    f"For bank transfer, please provide account number and bank name.",
+                    f"I want to arrange the payment. What's the account number and IFSC code?",
+                    f"Please share the bank account details so I can proceed with payment."
+                ]
+            else:
+                # We have bank, ask for UPI
+                session["asked_for_upi"] += 1
+                if not has_upi:
+                    responses = [
+                        f"Got the bank details. For UPI payment, what's the UPI ID?",
+                        f"Bank details noted. Can you also share UPI ID for alternative payment?",
+                        f"Have account info. What's the UPI handle for quick payment?",
+                        f"Bank details received. What's your UPI ID for payment?"
+                    ]
+                else:
+                    # We have both, can end
+                    responses = [
+                        f"Perfect! I have all details - account and UPI. I'll process this now.",
+                        f"Thank you. Got both bank and UPI details. Taking care of it.",
+                        f"All set. Have complete information. Will proceed immediately.",
+                        f"Excellent. Details received. I'll handle the payment now."
+                    ]
         else:
-            responses = [
-                f"If payment needed, what account should I use?",
-                f"What are the payment details? Need to prepare.",
-                f"Can share account info so I can arrange?"
-            ]
-    
-    elif step == 6:
-        responses = [
-            f"Need more details to complete this properly.",
-            f"Almost there. Just need remaining information.",
-            f"Let's finish up. What else is required?",
-            f"Final details needed to proceed."
-        ]
-    
-    else:  # step >= 7
-        has_bank = session["extracted"].get("bankAccounts")
-        has_upi = session["extracted"].get("upiIds")
-        
-        if has_bank or has_upi:
-            responses = [
-                f"Got it. Have all details now. Will handle this.",
-                f"Perfect. Understand everything. Taking care of it.",
-                f"Thank you. Have what's needed. Will proceed.",
-                f"All set. Got the information. Handling now."
-            ]
-        else:
-            responses = [
-                f"Still need account or payment details to proceed.",
-                f"To complete, please share account or UPI info.",
-                f"Almost done. Just need account details now.",
-                f"Final step: need payment/account information."
-            ]
+            session["asked_for_upi"] += 1
+            if not has_upi:
+                responses = [
+                    f"For UPI payment, what's your UPI ID? Like example@oksbi",
+                    f"Can you share UPI ID for quick payment?",
+                    f"What's your UPI handle? I prefer UPI payments.",
+                    f"Please provide UPI ID for payment transfer."
+                ]
+            else:
+                # We have UPI, ask for bank
+                session["asked_for_bank"] += 1
+                if not has_bank:
+                    responses = [
+                        f"Got UPI ID. For bank transfer, need account number and IFSC.",
+                        f"UPI noted. Also need bank details as backup. Account number?",
+                        f"Have UPI. Need bank account too. Can you share?",
+                        f"UPI received. Please provide bank account details as well."
+                    ]
+                else:
+                    # We have both
+                    responses = [
+                        f"Great! Have both UPI and bank details. Will complete now.",
+                        f"Perfect. Got all payment options. Processing immediately.",
+                        f"All details received. Thank you. I'll take care of it.",
+                        f"Complete information obtained. Will proceed with resolution."
+                    ]
     
     # Pick response
     response = random.choice(responses)
     
-    # Add natural fillers (30% chance)
-    if random.random() > 0.7:
-        fillers = ["Um, ", "Actually, ", "You know, ", "I think "]
+    # Add natural human variations
+    if random.random() > 0.6:
+        fillers = ["Um, ", "Actually, ", "You know, ", "I think ", "So, "]
         response = random.choice(fillers) + response
     
-    # Increment step
-    session["step"] = min(step + 1, 10)
+    if random.random() > 0.5:
+        hesitations = ["...", " Let me think... ", " Hmm... ", " "]
+        response = response + random.choice(hesitations)
+    
+    # Increment step but NEVER stop asking if no details
+    if not session["got_details"] and step > 20:
+        # Reset to phase 5 to keep asking
+        session["step"] = 13
+    else:
+        session["step"] = step + 1
     
     return response
 
@@ -166,8 +234,8 @@ def root():
     return JSONResponse(content={
         "status": "ready", 
         "service": "agentic-honeypot",
-        "version": "10.0",
-        "active_sessions": len(session_manager.sessions)
+        "version": "11.0",
+        "sessions": len(session_manager.sessions)
     })
 
 @app.post("/")
@@ -176,12 +244,12 @@ async def root_post(
     background_tasks: BackgroundTasks,
     x_api_key: Optional[str] = Header(None, alias="x-api-key")
 ):
-    """Handle POST to root URL"""
+    """Handle POST to root"""
     return await process_message(request, background_tasks)
 
 @app.get("/health")
 def health():
-    return JSONResponse(content={"status": "healthy", "time": time.time()})
+    return JSONResponse(content={"status": "healthy", "timestamp": time.time()})
 
 @app.post("/api/v1/process")
 async def process_message(
@@ -189,20 +257,21 @@ async def process_message(
     background_tasks: BackgroundTasks,
     x_api_key: Optional[str] = Header(None, alias="x-api-key")
 ):
-    """Fast main endpoint - NO TIMEOUT"""
+    """Main endpoint - CONTINUES until gets scammer details"""
     
     try:
-        # Fast JSON parse
+        # Parse request
         body = await request.json()
         
-        # Fast extraction
+        # Get session
         session_id = body.get("sessionId", body.get("session_id", f"sess_{int(time.time())}"))
+        session = session_manager.get_session(session_id)
         
-        # Get message text
+        # Get message
         msg = ""
-        if isinstance(body.get("message"), dict):
+        if body.get("message") and isinstance(body["message"], dict):
             msg = body["message"].get("text", "")
-        elif isinstance(body.get("message"), str):
+        elif body.get("message") and isinstance(body["message"], str):
             msg = body["message"]
         elif body.get("text"):
             msg = body["text"]
@@ -216,43 +285,67 @@ async def process_message(
         if not msg:
             msg = "Hello"
         
-        # Get session
-        session = session_manager.get_session(session_id)
-        
-        # Get response (FAST)
+        # Get response
         reply = get_conversation_response(session, msg)
         
         # Update session
         session_manager.update_session(session_id, {
             "step": session["step"],
-            "extracted": session["extracted"]
+            "extracted": session["extracted"],
+            "got_details": session["got_details"],
+            "conversation_count": session["conversation_count"]
         })
         
-        # Simple log
-        print(f"[{session_id[:8]}] Step:{session['step']-1} -> {reply[:60]}...")
+        # Log details
+        print(f"\n" + "="*50)
+        print(f"💬 CONVERSATION #{session['conversation_count']}")
+        print(f"📝 Session: {session_id[:12]}...")
+        print(f"📊 Step: {session['step']-1}")
+        print(f"💭 Message: {msg[:80]}...")
+        print(f"🤖 Reply: {reply}")
         
-        # Fast return
+        # Show extracted details
+        extracted = session["extracted"]
+        has_data = False
+        for key, values in extracted.items():
+            if values:
+                has_data = True
+                print(f"🎯 {key}: {values}")
+        
+        if not has_data:
+            print(f"🎯 No details extracted yet")
+        
+        if session["got_details"]:
+            print(f"✅ SUCCESS: Got scammer details!")
+        else:
+            print(f"🔄 CONTINUING: Still asking for details...")
+        
+        print("="*50)
+        
+        # Return response
         return JSONResponse({
             "status": "success",
             "reply": reply,
-            "step": session["step"] - 1
+            "step": session["step"] - 1,
+            "conversation_count": session["conversation_count"],
+            "has_details": session["got_details"]
         })
         
     except json.JSONDecodeError:
         return JSONResponse({
             "status": "success",
-            "reply": "Hello, got your message. Please explain more.",
+            "reply": "Hello, I received your message. Can you explain what this is about?",
             "step": 1
         })
         
     except Exception as e:
         return JSONResponse({
-            "status": "success", 
-            "reply": "Received your message. Need more details.",
+            "status": "success",
+            "reply": "I received your message. Please provide more details.",
             "step": 1
         })
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=30)
+    uvicorn.run(app, host="0.0.0.0", port=port)
