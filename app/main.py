@@ -39,32 +39,25 @@ def extract_intelligence(text):
     text_lower = text.lower()
     
     # 1. PHONE NUMBERS: Exactly 10 digits, starts with 6-9
-    # Matches: 9876543210, 7890123456
-    # Doesn't match: 1234567890 (starts with 1), 98765432101 (11 digits)
     phone_pattern = r'\b[6789]\d{9}\b'
     phones = re.findall(phone_pattern, text)
     intel["phone_numbers"] = [p for p in phones if len(p) == 10]
     
     # 2. BANK ACCOUNTS: More than 10 digits (11-18 digits)
-    # Matches: 12345678901 (11 digits), 123456789012345678 (18 digits)
-    # Doesn't match: 1234567890 (10 digits)
     bank_pattern = r'\b\d{11,18}\b'
     banks = re.findall(bank_pattern, text)
-    # Filter out phone numbers that might match (remove 10+ digit numbers starting with 6-9)
+    # Filter out phone numbers that might match
     intel["bank_accounts"] = [b for b in banks if not re.match(r'^[6789]', b) or len(b) > 10]
     
     # 3. IFSC CODES: 4 letters + 0 + 6 alphanumeric
-    # Matches: SBIN0123456, HDFC0001234, ICIC0005678
     ifsc_pattern = r'\b[A-Z]{4}0[0-9A-Z]{6}\b'
     intel["ifsc_codes"] = re.findall(ifsc_pattern, text.upper())
     
     # 4. UPI IDs: name@bank
-    # Matches: raj@oksbi, priya@okhdfcbank, payment@paytm
     upi_pattern = r'\b[\w.\-]+@(okicici|okhdfcbank|oksbi|paytm|phonepe|gpay|axl|ybl|ibl|sbi|hdfc|icici|axis|kotak|yesbank|upi)\b'
     intel["upi_ids"] = re.findall(upi_pattern, text_lower)
     
     # 5. PHISHING LINKS: http/https URLs
-    # Matches: http://verify-bank.com, https://secure-login.net
     link_pattern = r'https?://[^\s]+'
     links = re.findall(link_pattern, text)
     # Filter for suspicious domains
@@ -176,12 +169,21 @@ def get_response(session, message):
             reply = f"{filler}{emotional_phrase}Please provide {' and '.join(missing)} so I can proceed."
         else:
             # WE HAVE EVERYTHING!
-            reply = f"{filler}Thank you! I have all details: {' and '.join([
-                f"{len(session['intel']['bank_accounts'])} bank accounts" if has_bank else f"{len(session['intel']['upi_ids'])} UPI IDs",
-                f"{len(session['intel']['phone_numbers'])} phone numbers",
-                f"{len(session['intel']['ifsc_codes'])} IFSC codes",
-                f"{len(session['intel']['phishing_links'])} verification links"
-            ])}. I'll handle this now."
+            # Build summary message
+            details_list = []
+            if has_bank:
+                details_list.append(f"{len(session['intel']['bank_accounts'])} bank accounts")
+            if has_upi:
+                details_list.append(f"{len(session['intel']['upi_ids'])} UPI IDs")
+            if has_phone:
+                details_list.append(f"{len(session['intel']['phone_numbers'])} phone numbers")
+            if has_ifsc:
+                details_list.append(f"{len(session['intel']['ifsc_codes'])} IFSC codes")
+            if has_link:
+                details_list.append(f"{len(session['intel']['phishing_links'])} verification links")
+            
+            summary = " and ".join(details_list)
+            reply = f"{filler}Thank you! I have all details: {summary}. I'll handle this now."
             session["conversation_active"] = False
     
     # Increment step
@@ -287,6 +289,7 @@ async def handle(request: Request):
         })
         
     except Exception as e:
+        print(f"Error: {e}")
         return JSONResponse({
             "status": "success",
             "reply": "Hello, I received your message. Please explain.",
