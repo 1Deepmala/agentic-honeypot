@@ -1,15 +1,15 @@
-from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi import FastAPI, Request, BackgroundTasks, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import re
 import json
 import os  
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 import random
 from datetime import datetime, timedelta
 
-app = FastAPI(title="Agentic Honey-Pot", version="7.0")
+app = FastAPI(title="Agentic Honey-Pot", version="8.0")
 
 # CORS
 app.add_middleware(
@@ -21,7 +21,6 @@ app.add_middleware(
 )
 
 # ========== GLOBAL SESSION STORAGE ==========
-# In production, use Redis or database
 class SessionManager:
     def __init__(self):
         self.sessions: Dict[str, Dict] = {}
@@ -62,7 +61,7 @@ class SessionManager:
     
     def cleanup_old_sessions(self):
         """Remove sessions older than 1 hour"""
-        if (datetime.now() - self.last_cleanup).seconds < 300:  # 5 minutes
+        if (datetime.now() - self.last_cleanup).seconds < 300:
             return
         
         expired = []
@@ -112,8 +111,6 @@ def get_conversation_response(session: Dict, message: str) -> str:
     step = session["step"]
     persona = session["persona"]
     name = persona["name"]
-    
-    message_lower = message.lower()
     
     # Extract from current message
     new_intel = extract_intelligence(message)
@@ -232,38 +229,61 @@ def root():
     return JSONResponse(content={
         "status": "ready", 
         "service": "agentic-honeypot",
-        "version": "7.0",
-        "active_sessions": len(session_manager.sessions)
+        "version": "8.0",
+        "active_sessions": len(session_manager.sessions),
+        "endpoints": {
+            "process": "/api/v1/process",
+            "health": "/health",
+            "test": "/test"
+        }
     })
 
 @app.get("/health")
 def health():
-    return JSONResponse(content={"status": "healthy"})
+    return JSONResponse(content={"status": "healthy", "timestamp": datetime.now().isoformat()})
 
+# ========== GUVI TESTER ENDPOINT ==========
 @app.post("/api/v1/process")
-async def process_message(request: Request, background_tasks: BackgroundTasks):
-    """Main endpoint with proper session management"""
+async def process_message(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_api_key: Optional[str] = Header(None, alias="x-api-key")  # GUVI sends this
+):
+    """Main endpoint with x-api-key support for GUVI"""
     
     try:
         # Parse request
         body = await request.json()
         
-        # Extract session ID (GUVI sends this)
-        session_id = body.get("sessionId", f"session_{int(time.time())}")
+        # Log GUVI request
+        print(f"\n" + "="*60)
+        print(f"🔑 GUVI API Key: {x_api_key}")
+        print(f"📦 Request Body: {json.dumps(body, indent=2)}")
         
-        # Extract message text
+        # Extract session ID
+        session_id = body.get("sessionId", body.get("session_id", f"guvi_{int(time.time())}"))
+        
+        # Extract message text (handle multiple formats)
         message_text = ""
         if "message" in body and isinstance(body["message"], dict):
             message_text = body["message"].get("text", "")
         elif "text" in body:
             message_text = body["text"]
+        elif "message" in body and isinstance(body["message"], str):
+            message_text = body["message"]
         else:
-            message_text = str(body)
+            # Try to find any text field
+            for key, value in body.items():
+                if isinstance(value, str) and len(value) > 3:
+                    message_text = value
+                    break
+        
+        if not message_text:
+            message_text = "Test message from GUVI"
         
         # Get or create session
         session = session_manager.get_session(session_id)
         
-        print(f"\n" + "="*60)
         print(f"📨 SESSION: {session_id}")
         print(f"📊 STEP: {session['step']}")
         print(f"💬 SCAMMER: {message_text[:100]}...")
@@ -288,12 +308,14 @@ async def process_message(request: Request, background_tasks: BackgroundTasks):
         print(f"📈 TOTAL MESSAGES: {len(session.get('messages', []))}")
         print(f"="*60)
         
-        # Return response
+        # Return response (GUVI expects this format)
         return JSONResponse(
             status_code=200,
             content={
                 "status": "success",
-                "reply": agent_reply
+                "reply": agent_reply,
+                "session_id": session_id,
+                "step": session["step"]
             }
         )
         
@@ -303,7 +325,8 @@ async def process_message(request: Request, background_tasks: BackgroundTasks):
             status_code=200,
             content={
                 "status": "success",
-                "reply": "Hello, I received your message. Can you explain what this is about?"
+                "reply": "Hello, I received your message. Can you explain what this is about?",
+                "error": "Invalid JSON received"
             }
         )
         
@@ -313,16 +336,49 @@ async def process_message(request: Request, background_tasks: BackgroundTasks):
             status_code=200,
             content={
                 "status": "success",
-                "reply": "I received your message. Please provide more details."
+                "reply": "I received your message. Please provide more details.",
+                "error": str(e)
             }
         )
 
+# ========== SIMPLE TEST ENDPOINT FOR GUVI ==========
+@app.post("/test")
+async def test_endpoint(
+    x_api_key: Optional[str] = Header(None, alias="x-api-key")
+):
+    """Simple test endpoint for GUVI tester"""
+    return JSONResponse({
+        "status": "success",
+        "message": "GUVI Honeypot is working!",
+        "api_key_received": x_api_key,
+        "timestamp": datetime.now().isoformat(),
+        "endpoint": "/api/v1/process is the main endpoint"
+    })
+
+@app.get("/test")
+async def test_get():
+    """GET test endpoint"""
+    return JSONResponse({
+        "status": "success",
+        "message": "Agentic Honeypot API is running",
+        "version": "8.0",
+        "endpoints": {
+            "POST /api/v1/process": "Main conversation endpoint",
+            "GET /health": "Health check",
+            "POST /test": "Test endpoint"
+        }
+    })
+
 # Handle OPTIONS for CORS
 @app.options("/api/v1/process")
-async def options_handler():
+async def options_process():
+    return JSONResponse(content={"status": "success"})
+
+@app.options("/test")
+async def options_test():
     return JSONResponse(content={"status": "success"})
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))  # Get port from cloud
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
