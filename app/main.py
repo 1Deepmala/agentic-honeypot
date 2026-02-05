@@ -388,7 +388,63 @@ async def root_post(request: Request):
     """Handle POST to root (GUVI might send here)"""
     return await process_message(request, BackgroundTasks())
 
-@app.get("/")
-async def root_get():
-    """Handle GET to root (GUVI might send here)"""
-    return
+# ========== GUVI COMPATIBILITY ENDPOINTS ==========
+
+# Endpoint 1: Root POST endpoint (GUVI might send here)
+@app.post("/")
+async def root_post(request: Request):
+    """Handle POST requests to root URL"""
+    try:
+        body = await request.json()
+        # Forward to main processor
+        return await process_message(request, BackgroundTasks())
+    except:
+        return JSONResponse({
+            "status": "success",
+            "reply": "I received your message. Please tell me more details.",
+            "note": "Send messages to /api/v1/process for better handling"
+        })
+
+# Endpoint 2: Simple test endpoint
+@app.post("/api/test")
+async def api_test(request: Request):
+    """Simple test endpoint for GUVI"""
+    return JSONResponse({
+        "status": "success",
+        "message": "Agentic Honeypot API is working!",
+        "timestamp": datetime.now().isoformat(),
+        "endpoint": "Use POST /api/v1/process for conversations"
+    })
+
+# Endpoint 3: Catch-all endpoint
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def catch_all(path: str, request: Request):
+    """Catch all undefined routes"""
+    method = request.method
+    
+    if method == "POST":
+        try:
+            body = await request.json()
+            # Try to process it anyway
+            session_id = f"catchall_{int(time.time())}"
+            session = session_manager.get_session(session_id)
+            reply = get_conversation_response(session, str(body)[:200])
+            
+            return JSONResponse({
+                "status": "success",
+                "reply": reply,
+                "note": f"You reached undefined endpoint: /{path}. Use /api/v1/process instead."
+            })
+        except:
+            pass
+    
+    return JSONResponse({
+        "status": "error",
+        "message": "Endpoint not found",
+        "available_endpoints": {
+            "POST /api/v1/process": "Main conversation endpoint",
+            "GET /health": "Health check",
+            "POST /": "Alternative endpoint",
+            "GET /": "API information"
+        }
+    }, status_code=404)
